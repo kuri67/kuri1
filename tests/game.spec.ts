@@ -1,0 +1,28 @@
+import {test,expect} from '@playwright/test';
+const state=(page:any)=>page.evaluate(()=>(window as any).gameState());
+test('closed drawing, pause, modify, place, bridge traversal and reset',async({page})=>{
+ test.setTimeout(90000);
+ const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.goto('/');await expect(page.locator('#status')).toContainText('走向断桥');
+ await page.waitForTimeout(800);const before=await state(page);
+ await page.locator('#draw').click();const paused=await state(page);await page.waitForTimeout(400);expect((await state(page)).player).toEqual(paused.player);
+ const c=page.locator('#paper');const r=(await c.boundingBox())!;
+ await page.mouse.move(r.x+100,r.y+100);await page.mouse.down();await page.mouse.move(r.x+240,r.y+100,{steps:10});await page.mouse.up();await page.locator('#finish').click();await expect(page.locator('#ink')).toContainText('封闭轮廓');
+ await page.locator('#example').click();await page.locator('#finish').click();expect((await state(page)).mode).toBe('place');
+ await page.locator('#edit').click();await page.locator('#finish').click();await page.locator('#scale').fill('1.1');await page.locator('#confirm').click();expect((await state(page)).objects).toBe(1);
+ await page.waitForTimeout(1200);await page.screenshot({path:'test-results/bridge.png'});
+ await page.keyboard.down('KeyD');await expect.poll(async()=>(await state(page)).player.x,{timeout:20000}).toBeGreaterThan(-4.3);await page.keyboard.press('Space');await expect.poll(async()=>(await state(page)).mode,{timeout:20000}).toBe('win');await page.keyboard.up('KeyD');
+ await page.screenshot({path:'test-results/win.png'});await page.locator('#again').click();expect((await state(page)).objects).toBe(0);expect((await state(page)).mode).toBe('play');
+ // With no bridge, walking into the chasm must respawn.
+ await page.keyboard.down('KeyD');await expect(page.locator('#status')).toContainText('回到岸边',{timeout:15000});await page.keyboard.up('KeyD');expect((await state(page)).player.x).toBeLessThan(-2);
+ expect(before.player.x).toBeLessThan(-8);expect(errors).toEqual([]);
+});
+
+test('reclaim an existing object and reject out-of-bounds placement',async({page})=>{
+ await page.goto('/');await expect(page.locator('#status')).toContainText('走向断桥');
+ await page.locator('#draw').click();await page.locator('#example').click();await page.locator('#finish').click();
+ await page.locator('#scale').fill('2.5');await page.locator('#confirm').click();expect((await state(page)).objects).toBe(0);await expect(page.locator('#status')).toContainText('超出');
+ await page.locator('#scale').fill('1');await page.locator('#confirm').click();expect((await state(page)).objects).toBe(1);
+ await page.locator('#draw').click();await page.locator('#rework').click();expect((await state(page)).objects).toBe(0);expect((await state(page)).closed).toBe(true);await page.locator('#finish').click();await page.locator('#confirm').click();expect((await state(page)).objects).toBe(1);
+ await page.locator('#draw').click();await page.screenshot({path:'test-results/drawing.png'});
+});
